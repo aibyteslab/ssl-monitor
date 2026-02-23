@@ -182,7 +182,43 @@ AI Bytes Lab builds security automation exclusively with **Mistral AI** because:
 
 ---
 
-## 📋 NIS2 Relevance
+## � GDPR & Data Privacy
+
+### What Data Is Processed?
+
+- **Domain names** and SSL certificate metadata only (expiry dates, issuer, validity dates)
+- **No personal data.** No user information. No traffic logs.
+
+### Where Is It Stored?
+
+- All scan results stored **locally on your self-hosted n8n instance**
+- You maintain full control over your data
+- No data is persisted externally unless you explicitly configure it
+
+### What Goes to Mistral AI?
+
+- Domain names + certificate status summary (critical/warning/valid)
+- Days remaining until expiry
+- Issuer and validity dates
+- Minimal, structured data only — used to generate the security analysis
+
+### What Doesn't Leave Your Server?
+
+- User data, traffic logs, API keys, credentials
+- Internal network information
+- Any data beyond what's explicitly sent for analysis
+
+### Important Compliance Notes
+
+- **Ensure you have a Data Processing Agreement (DPA) with Mistral AI** — required under GDPR Article 28
+- Mistral is a French company with EU infrastructure — GDPR compliant
+- This workflow helps you meet **NIS2 Article 21** encryption requirements
+- Self-hosted n8n means you're not dependent on external SaaS platforms
+- **For n8n Cloud users:** If using the ssl-checker.io fallback, review their privacy policy separately
+
+---
+
+## �📋 NIS2 Relevance
 
 Expired or weak SSL certificates are a **NIS2 Article 21** compliance concern. Article 21 requires organizations to implement appropriate technical measures for security, including encryption in transit. An expired certificate means:
 
