@@ -1,0 +1,355 @@
+{
+  "name": "Mistral SSL checks",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "4904af8c-e404-4ee1-9e50-9f680aeedd99",
+      "name": "Daily Trigger — 8:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -5712,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "domain-list",
+              "name": "domains",
+              "value": "={{ [\n  { \"domain\": \"expired.badssl.com\",      \"owner\": \"Test - Expired\" },\n  { \"domain\": \"self-signed.badssl.com\",  \"owner\": \"Test - Self Signed\" },\n  { \"domain\": \"aibyteslab.com\",         \"owner\": \"Your Company\" }\n] }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c0967193-0fa1-4712-af0d-3ed06e2c2857",
+      "name": "Domain List — Edit Here",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        -5472,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "domains",
+        "options": {}
+      },
+      "id": "504e689b-c008-48d1-ad95-3d7d9cce26d1",
+      "name": "Split Into Individual Domains",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -5216,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const apiData = $input.first().json;\nconst domainItem = $('Split Into Individual Domains').first().json;\n\nconst domain = domainItem.domain;\nconst owner = domainItem.owner || domain;\nconst daysRemaining = apiData.days_remaining ?? null;\nconst validTo = apiData.valid_till ?? null;\nconst validFrom = apiData.valid_from ?? null;\nconst issuer = apiData.issuer ?? 'Unknown';\nconst subject = apiData.host ?? domain;\nconst isValid = apiData.valid ?? false;\n\nlet status = 'VALID';\nlet severity = 'info';\n\nif (!isValid || daysRemaining === null) {\n  status = 'ERROR'; severity = 'critical';\n} else if (daysRemaining < 0) {\n  status = 'EXPIRED'; severity = 'critical';\n} else if (daysRemaining <= 7) {\n  status = 'CRITICAL'; severity = 'critical';\n} else if (daysRemaining <= 30) {\n  status = 'WARNING'; severity = 'warning';\n}\n\nreturn [{ json: { domain, owner, status, severity, daysRemaining, validFrom, validTo, issuer, subject, checkedAt: new Date().toISOString().split('T')[0] } }];"
+      },
+      "id": "088bc8e4-c27d-4ef3-9a3b-a7a9c0469b39",
+      "name": "Parse SSL Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4720,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nconst results = allItems.map(i => i.json);\n\nconst critical = results.filter(r => r.severity === 'critical');\nconst warning  = results.filter(r => r.severity === 'warning');\nconst valid    = results.filter(r => r.severity === 'info');\nconst hasIssues = critical.length > 0 || warning.length > 0;\n\nlet summaryForMistral = 'SSL Certificate Daily Scan Results\\nDate: ' + new Date().toISOString().split('T')[0] + '\\nTotal domains checked: ' + results.length + '\\n\\n';\n\nif (critical.length > 0) {\n  summaryForMistral += 'CRITICAL / EXPIRED / ERROR (' + critical.length + '):\\n';\n  critical.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ' (Owner: ' + r.owner + ')\\n';\n    summaryForMistral += '    Status: ' + r.status + ' | Days remaining: ' + (r.daysRemaining !== null ? r.daysRemaining : 'N/A') + '\\n';\n    if (r.validTo) summaryForMistral += '    Expires: ' + r.validTo + ' | Issuer: ' + r.issuer + '\\n';\n  });\n  summaryForMistral += '\\n';\n}\n\nif (warning.length > 0) {\n  summaryForMistral += 'WARNING — Expiring Soon (' + warning.length + '):\\n';\n  warning.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ' (Owner: ' + r.owner + ')\\n';\n    summaryForMistral += '    Days remaining: ' + r.daysRemaining + ' | Expires: ' + r.validTo + ' | Issuer: ' + r.issuer + '\\n';\n  });\n  summaryForMistral += '\\n';\n}\n\nif (valid.length > 0) {\n  summaryForMistral += 'VALID (' + valid.length + '):\\n';\n  valid.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ': ' + r.daysRemaining + ' days remaining (expires ' + r.validTo + ')\\n';\n  });\n}\n\nlet subjectPrefix = '✅';\nif (critical.length > 0) subjectPrefix = '🔴';\nelse if (warning.length > 0) subjectPrefix = '🟡';\n\nconst emailSubject = subjectPrefix + ' SSL Daily Report [' + new Date().toISOString().split('T')[0] + '] — ' + critical.length + ' Critical, ' + warning.length + ' Warning, ' + valid.length + ' Valid';\n\nreturn [{ json: { hasIssues, critical: critical.length, warning: warning.length, valid: valid.length, total: results.length, summaryForMistral, emailSubject, checkedAt: new Date().toISOString().split('T')[0] } }];"
+      },
+      "id": "8928ef48-4fc8-4211-8e82-65427b4c7f7f",
+      "name": "Aggregate All Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4464,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasIssues }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "357634cc-b2c9-4154-a90f-2518bf1420c3",
+      "name": "Any Issues Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -4224,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the Mistral request body as a clean JSON string\n// This avoids the 'JSON parameter needs to be valid JSON' error\nconst summary = $input.first().json.summaryForMistral;\n\nconst body = {\n  model: 'mistral-small-latest',\n  temperature: 0.2,\n  max_tokens: 900,\n  messages: [\n    {\n      role: 'system',\n      content: 'You are a cybersecurity expert specializing in SSL/TLS certificate management. You write clear professional daily security reports for mixed audiences — technical teams and management. Be concise, structured, and always include prioritized remediation steps with realistic deadlines.'\n    },\n    {\n      role: 'user',\n      content: 'Write a professional daily SSL certificate security report email based on this scan data:\\n\\n' + summary + '\\n\\nStructure:\\n1. Executive Summary — 2-3 sentences on overall SSL health\\n2. Immediate Action Required — critical and expired certs, specific steps per domain\\n3. Action Needed Soon — warning certs, deadline recommendations\\n4. SSL Hygiene Recommendations\\n\\nTone: professional, direct, suitable for both IT and management. Plain text only, no markdown.'\n    }\n  ]\n};\n\nreturn [{ json: { body: JSON.stringify(body), emailSubject: $input.first().json.emailSubject, checkedAt: $input.first().json.checkedAt, total: $input.first().json.total } }];"
+      },
+      "id": "691dd500-57f9-4b51-b0a1-ab1e4c080359",
+      "name": "Build Mistral Request Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3968,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer Nr3Kund1OywSC9exMqARq7JJcG9mkgMs"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "05b9a92c-0db6-48c8-b1a6-22b9b17a15ff",
+      "name": "Mistral AI — Write Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -3712,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "AI Bytes Lab Security Reports <reports@aibyteslab.email>",
+        "toEmail": "info@aibyteslab.com",
+        "subject": "={{ $json.emailSubject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "6f135065-7044-4cda-ab5b-a60d6342e637",
+      "name": "Send Summary Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        -3264,
+        768
+      ],
+      "webhookId": "52b26b3c-0bd7-436d-8871-0acb56ccaed2",
+      "credentials": {
+        "smtp": {
+          "id": "TDbSvuQthvQWaxJY",
+          "name": "SMTP AI Bytes Lab"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('[AI Bytes Lab SSL Monitor] All ' + $('Aggregate All Results').first().json.total + ' domains healthy. No alert sent.');\nreturn $input.all();"
+      },
+      "id": "65eb8a29-a561-405d-b929-7fdf79d422fa",
+      "name": "Log — All Certs Healthy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3968,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mistralRaw = $('Mistral AI — Write Report').first().json.choices[0].message.content;\nconst agg = $('Aggregate All Results').first().json;\n\n// Safe fallback — allResults might not be passed, rebuild from criticalResults + warningResults + validResults\nconst allResults = agg.allResults\n  || [...(agg.criticalResults || []), ...(agg.warningResults || []), ...(agg.validResults || [])];\n\n// Strip markdown from Mistral output\nconst mistralClean = mistralRaw\n  .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')\n  .replace(/\\*(.+?)\\*/g, '<em>$1</em>')\n  .split('\\n\\n')\n  .map(p => `<p style=\"margin:0 0 10px 0;\">${p.replace(/\\n/g, '<br>')}</p>`)\n  .join('');\n\n// Build issue cards\nconst issueCards = allResults\n  .filter(r => r.severity !== 'info')\n  .map(r => {\n    const isExpired = r.status === 'EXPIRED' || r.status === 'ERROR';\n    const bgColor    = r.severity === 'critical' ? '#fff0f0' : '#fff8e1';\n    const border     = r.severity === 'critical' ? '#e53935' : '#fb8c00';\n    const badgeColor = r.severity === 'critical' ? '#dc3545' : '#fd7e14';\n    const icon       = isExpired ? '🔴' : '🟡';\n\n    const daysText = r.daysRemaining !== null && r.daysRemaining >= 0\n      ? `${r.daysRemaining} days left`\n      : 'EXPIRED';\n\n    const detail = isExpired\n      ? 'Certificate has expired. Browsers are blocking users with a full-page security warning. Renew immediately.'\n      : `Certificate expires in ${r.daysRemaining} days (${r.validTo}). Schedule renewal now to avoid service disruption.`;\n\n    return `\n    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:16px;border-radius:10px;border:2px solid ${border};background:${bgColor};\">\n      <tr>\n        <td style=\"padding:20px 22px;\">\n          <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">\n            <tr>\n              <td style=\"font-size:28px;width:44px;vertical-align:top;padding-top:2px;\">${icon}</td>\n              <td style=\"padding-left:12px;\">\n                <div style=\"font-size:20px;font-weight:800;color:#1B2C4C;margin-bottom:3px;\">${r.domain}</div>\n                <div style=\"font-size:13px;color:#666;margin-bottom:12px;\">Owner: ${r.owner} &nbsp;|&nbsp; Issuer: ${r.issuer}</div>\n                <span style=\"display:inline-block;background:${badgeColor};color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;text-transform:uppercase;margin-right:6px;margin-bottom:6px;\">${r.status}</span>\n                <span style=\"display:inline-block;background:#1B2C4C;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;margin-right:6px;margin-bottom:6px;\">${daysText}</span>\n                ${r.validTo ? `<span style=\"display:inline-block;background:#e9ecef;color:#333;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-bottom:6px;\">Expires: ${r.validTo}</span>` : ''}\n                <div style=\"margin-top:12px;padding:12px 16px;background:rgba(255,255,255,0.8);border-radius:6px;border-left:4px solid ${border};font-size:14px;color:#444;line-height:1.6;\">${detail}</div>\n              </td>\n            </tr>\n          </table>\n        </td>\n      </tr>\n    </table>`;\n  }).join('');\n\n// Build full email HTML\nconst html = `<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>AI Bytes Lab SSL Alert</title></head>\n<body style=\"font-family:Arial,sans-serif;background:#f0f4f8;margin:0;padding:20px;\">\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\">\n<table width=\"750\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1);\">\n\n  <!-- HEADER -->\n  <tr>\n    <td style=\"background:#E9F0F9;padding:24px 30px;border-bottom:1px solid #d0daea;\">\n      <table cellpadding=\"0\" cellspacing=\"0\"><tr>\n        <td style=\"padding-right:20px;vertical-align:middle;\">\n          <img src=\"https://aibyteslab.com/notifications-logo.png\" alt=\"AI Bytes Lab\" style=\"width:120px;height:auto;\">\n        </td>\n        <td style=\"vertical-align:middle;\">\n          <div style=\"font-size:24px;font-weight:800;color:#1B2C4C;\">AI Bytes Lab</div>\n          <div style=\"font-size:15px;color:#4a5a70;margin-top:3px;\">Daily SSL Certificate Report</div>\n        </td>\n      </tr></table>\n    </td>\n  </tr>\n\n  <!-- CONTENT -->\n  <tr><td style=\"padding:28px 30px;\">\n\n    <!-- STATUS CARD -->\n    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e0e0e0;border-left:5px solid ${agg.critical > 0 ? '#dc3545' : '#fd7e14'};border-radius:8px;margin-bottom:20px;\">\n      <tr><td style=\"padding:20px 24px;\">\n        <table width=\"100%\" cellpadding=\"5\" cellspacing=\"0\">\n          <tr style=\"border-bottom:1px solid #f5f5f5;\">\n            <td style=\"font-weight:700;color:#1B2C4C;font-size:15px;\">Alert Status:</td>\n            <td align=\"right\" style=\"font-weight:800;font-size:16px;letter-spacing:1px;color:${agg.critical > 0 ? '#dc3545' : '#fd7e14'};\">${agg.critical > 0 ? '🔴 CRITICAL' : '🟡 WARNING'}</td>\n          </tr>\n          <tr style=\"border-bottom:1px solid #f5f5f5;\">\n            <td style=\"font-weight:700;color:#1B2C4C;font-size:15px;\">Summary:</td>\n            <td align=\"right\" style=\"color:#333;font-size:14px;\">${agg.critical + agg.warning} issue(s) found across ${agg.total} domains</td>\n          </tr>\n          <tr style=\"border-bottom:1px solid #f5f5f5;\">\n            <td style=\"font-weight:700;color:#1B2C4C;font-size:15px;\">Issues Found:</td>\n            <td align=\"right\" style=\"color:#333;font-size:14px;\">${agg.critical} Critical &nbsp;|&nbsp; ${agg.warning} Warning &nbsp;|&nbsp; ${agg.valid} Valid</td>\n          </tr>\n          <tr>\n            <td style=\"font-weight:700;color:#1B2C4C;font-size:15px;\">Generated:</td>\n            <td align=\"right\" style=\"color:#333;font-size:14px;\">${new Date().toLocaleString('en-GB', { timeZone: 'Europe/Bucharest', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })} (Bucharest)</td>\n          </tr>\n        </table>\n      </td></tr>\n    </table>\n\n    <!-- ALERT BANNER -->\n    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#fff8e1;border:1px solid #ffe082;border-radius:8px;margin-bottom:24px;\">\n      <tr><td style=\"padding:16px 20px;\">\n        <div style=\"font-weight:700;color:#7a5c00;font-size:15px;margin-bottom:6px;\">⚠️ Immediate Action Required</div>\n        <div style=\"color:#7a5c00;font-size:14px;line-height:1.6;\">One or more SSL certificates require urgent attention. Expired or missing certificates cause browser security warnings and block user access entirely.</div>\n      </td></tr>\n    </table>\n\n    <!-- ISSUE CARDS -->\n    <div style=\"font-size:18px;font-weight:700;color:#1B2C4C;margin-bottom:16px;\">🚨 Issues Detected</div>\n    ${issueCards}\n\n    <!-- MISTRAL AI ANALYSIS -->\n    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f0f4ff;border:1px solid #c5d0f0;border-radius:8px;margin-bottom:24px;\">\n      <tr><td style=\"padding:18px 20px;\">\n        <div style=\"font-size:12px;font-weight:700;color:#1B2C4C;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;\">🤖 Mistral AI — Security Analysis</div>\n        <div style=\"font-size:14px;color:#2c3e50;line-height:1.7;\">${mistralClean}</div>\n      </td></tr>\n    </table>\n\n    <!-- RECOMMENDED ACTIONS -->\n    <div style=\"font-size:17px;font-weight:700;color:#1B2C4C;margin-bottom:12px;\">Recommended Actions</div>\n    <ul style=\"margin:0;padding-left:20px;\">\n      <li style=\"font-size:14px;color:#444;padding:4px 0;\"><strong>Immediate:</strong> Renew all expired and critical certificates now</li>\n      <li style=\"font-size:14px;color:#444;padding:4px 0;\"><strong>Prioritize:</strong> Address critical severity issues first</li>\n      <li style=\"font-size:14px;color:#444;padding:4px 0;\"><strong>Verify:</strong> Confirm new certificate is properly installed before old one expires</li>\n      <li style=\"font-size:14px;color:#444;padding:4px 0;\"><strong>Schedule:</strong> Plan certificate renewals during a maintenance window</li>\n      <li style=\"font-size:14px;color:#444;padding:4px 0;\"><strong>Monitor:</strong> Ensure this automated SSL monitor continues running daily</li>\n    </ul>\n\n  </td></tr>\n\n  <!-- FOOTER -->\n  <tr>\n    <td style=\"background:linear-gradient(135deg,#1B2C4C 0%,#2A3F5F 100%);padding:18px 30px;text-align:center;\">\n      <p style=\"margin:4px 0;font-size:12px;color:#ccd6e8;\">You are receiving this email because you are subscribed to security alerts from AI Bytes Lab.</p>\n      <p style=\"margin:4px 0;font-size:12px;color:#ccd6e8;\">AI Bytes Lab | Bucharest, Romania | <a href=\"https://aibyteslab.com\" style=\"color:#90b8f8;\">aibyteslab.com</a></p>\n      <p style=\"margin:4px 0;font-size:12px;color:#ccd6e8;\">Powered by <strong>Mistral AI</strong> — EU-oriented Security Automation &nbsp;|&nbsp; AI Bytes Lab © 2023–2026</p>\n    </td>\n  </tr>\n\n</table>\n</td></tr></table>\n</body>\n</html>`;\n\nreturn [{ json: { html, emailSubject: agg.emailSubject } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3472,
+        768
+      ],
+      "id": "888664c1-07c5-4483-b136-11b9d97ba327",
+      "name": "Build Email HTML"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tls = require('tls');\n\nconst item = $input.first().json;\nconst domain = (item.domain || '').replace(/^https?:\\/\\//, '').split('/')[0].trim();\nconst owner = item.owner || domain;\n\nif (!domain) throw new Error('No domain provided');\n\nconst result = await new Promise((resolve) => {\n\n  const socket = tls.connect({\n    host: domain,\n    port: 443,\n    servername: domain,\n    rejectUnauthorized: false,\n    timeout: 10000\n  }, () => {\n    try {\n      const cert = socket.getPeerCertificate(true);\n      socket.end();\n\n      if (!cert || Object.keys(cert).length === 0) {\n        resolve({\n          domain, owner, status: 'ERROR', severity: 'critical',\n          daysRemaining: null, validFrom: null, validTo: null,\n          issuer: 'N/A', issuedTo: domain,\n          serialNumber: 'N/A', fingerprint: 'N/A',\n          checkedAt: new Date().toISOString().split('T')[0],\n          error: 'No certificate returned by server'\n        });\n        return;\n      }\n\n      const now           = new Date();\n      const validTo       = new Date(cert.valid_to);\n      const validFrom     = new Date(cert.valid_from);\n      const daysRemaining = Math.floor((validTo - now) / (1000 * 60 * 60 * 24));\n\n      // ─── Thresholds ────────────────────────────────────────────────\n      // 30+ days  → OK\n      // 14 days   → WARNING\n      //  7 days   → CRITICAL\n      //  expired  → EXPIRED\n      let status = 'OK', severity = 'info';\n      if      (daysRemaining < 0)   { status = 'EXPIRED';  severity = 'critical'; }\n      else if (daysRemaining <= 7)  { status = 'CRITICAL'; severity = 'critical'; }\n      else if (daysRemaining <= 14) { status = 'WARNING';  severity = 'warning';  }\n      // else: 15-29 days falls through to OK as well — adjust if needed\n\n      const issuerObj = cert.issuer || {};\n      const issuer    = issuerObj.O || issuerObj.CN || 'Unknown';\n      const issuedTo  = (cert.subject || {}).CN || domain;\n\n      resolve({\n        domain, owner, status, severity, daysRemaining,\n        validFrom: validFrom.toISOString().split('T')[0],\n        validTo:   validTo.toISOString().split('T')[0],\n        issuer, issuedTo,\n        serialNumber: cert.serialNumber || 'N/A',\n        fingerprint:  cert.fingerprint  || 'N/A',\n        checkedAt: new Date().toISOString().split('T')[0],\n        error: null\n      });\n\n    } catch (err) {\n      socket.end();\n      resolve({\n        domain, owner, status: 'ERROR', severity: 'critical',\n        daysRemaining: null, validFrom: null, validTo: null,\n        issuer: 'N/A', issuedTo: domain,\n        serialNumber: 'N/A', fingerprint: 'N/A',\n        checkedAt: new Date().toISOString().split('T')[0],\n        error: err.message\n      });\n    }\n  });\n\n  socket.on('error', (err) => resolve({\n    domain, owner, status: 'ERROR', severity: 'critical',\n    daysRemaining: null, validFrom: null, validTo: null,\n    issuer: 'N/A', issuedTo: domain,\n    serialNumber: 'N/A', fingerprint: 'N/A',\n    checkedAt: new Date().toISOString().split('T')[0],\n    error: err.message\n  }));\n\n  socket.setTimeout(10000, () => {\n    socket.destroy();\n    resolve({\n      domain, owner, status: 'TIMEOUT', severity: 'critical',\n      daysRemaining: null, validFrom: null, validTo: null,\n      issuer: 'N/A', issuedTo: domain,\n      serialNumber: 'N/A', fingerprint: 'N/A',\n      checkedAt: new Date().toISOString().split('T')[0],\n      error: 'Connection timed out after 10 seconds'\n    });\n  });\n\n});\n\nreturn [{ json: result }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4960,
+        896
+      ],
+      "id": "41c6ebba-c665-40e8-9667-038a399fff15",
+      "name": "SSL Checker"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Trigger — 8:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Domain List — Edit Here",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Domain List — Edit Here": {
+      "main": [
+        [
+          {
+            "node": "Split Into Individual Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Individual Domains": {
+      "main": [
+        [
+          {
+            "node": "SSL Checker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse SSL Result": {
+      "main": [
+        [
+          {
+            "node": "Aggregate All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate All Results": {
+      "main": [
+        [
+          {
+            "node": "Any Issues Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Issues Found?": {
+      "main": [
+        [
+          {
+            "node": "Build Mistral Request Body",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log — All Certs Healthy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Mistral Request Body": {
+      "main": [
+        [
+          {
+            "node": "Mistral AI — Write Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral AI — Write Report": {
+      "main": [
+        [
+          {
+            "node": "Build Email HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email HTML": {
+      "main": [
+        [
+          {
+            "node": "Send Summary Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSL Checker": {
+      "main": [
+        [
+          {
+            "node": "Parse SSL Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "03838304-51dc-45d5-851e-cf55daefbae6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f3daf5c0d332b794d77df4697807eaca5ab6cdea210fa6b6a464581d6522fce5"
+  },
+  "id": "SkhChgQBsBziLjW3",
+  "tags": []
+}
