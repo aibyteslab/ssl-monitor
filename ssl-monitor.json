@@ -131,7 +131,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer Nr3Kund1OywSC9exMqARq7JJcG9mkgMs"
+              "value": "=Bearer YOUR_MISTRAL_API_KEY_HERE"
             },
             {
               "name": "Content-Type",
@@ -156,8 +156,8 @@
     },
     {
       "parameters": {
-        "fromEmail": "AI Bytes Lab Security Reports <reports@aibyteslab.email>",
-        "toEmail": "info@aibyteslab.com",
+        "fromEmail": "YOUR_FROM_EMAIL@example.com",
+        "toEmail": "YOUR_TO_EMAIL@example.com",
         "subject": "={{ $json.emailSubject }}",
         "emailFormat": "html",
         "html": "={{ $json.html }}",
