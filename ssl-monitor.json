@@ -60,7 +60,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const apiData = $input.first().json;\nconst domainItem = $('Split Into Individual Domains').first().json;\n\nconst domain = domainItem.domain;\nconst owner = domainItem.owner || domain;\nconst daysRemaining = apiData.days_remaining ?? null;\nconst validTo = apiData.valid_till ?? null;\nconst validFrom = apiData.valid_from ?? null;\nconst issuer = apiData.issuer ?? 'Unknown';\nconst subject = apiData.host ?? domain;\nconst isValid = apiData.valid ?? false;\n\nlet status = 'VALID';\nlet severity = 'info';\n\nif (!isValid || daysRemaining === null) {\n  status = 'ERROR'; severity = 'critical';\n} else if (daysRemaining < 0) {\n  status = 'EXPIRED'; severity = 'critical';\n} else if (daysRemaining <= 7) {\n  status = 'CRITICAL'; severity = 'critical';\n} else if (daysRemaining <= 30) {\n  status = 'WARNING'; severity = 'warning';\n}\n\nreturn [{ json: { domain, owner, status, severity, daysRemaining, validFrom, validTo, issuer, subject, checkedAt: new Date().toISOString().split('T')[0] } }];"
+        "jsCode": "// SSL Checker already returns normalized certificate data.\n// Keep this node as an explicit validation boundary for future extensions.\nconst r = $input.first().json;\n\nif (!r.domain || !r.status || !r.severity) {\n  throw new Error('Invalid SSL Checker result: missing domain/status/severity');\n}\n\nreturn [{ json: r }];"
       },
       "id": "088bc8e4-c27d-4ef3-9a3b-a7a9c0469b39",
       "name": "Parse SSL Result",
@@ -73,7 +73,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const allItems = $input.all();\nconst results = allItems.map(i => i.json);\n\nconst critical = results.filter(r => r.severity === 'critical');\nconst warning  = results.filter(r => r.severity === 'warning');\nconst valid    = results.filter(r => r.severity === 'info');\nconst hasIssues = critical.length > 0 || warning.length > 0;\n\nlet summaryForMistral = 'SSL Certificate Daily Scan Results\\nDate: ' + new Date().toISOString().split('T')[0] + '\\nTotal domains checked: ' + results.length + '\\n\\n';\n\nif (critical.length > 0) {\n  summaryForMistral += 'CRITICAL / EXPIRED / ERROR (' + critical.length + '):\\n';\n  critical.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ' (Owner: ' + r.owner + ')\\n';\n    summaryForMistral += '    Status: ' + r.status + ' | Days remaining: ' + (r.daysRemaining !== null ? r.daysRemaining : 'N/A') + '\\n';\n    if (r.validTo) summaryForMistral += '    Expires: ' + r.validTo + ' | Issuer: ' + r.issuer + '\\n';\n  });\n  summaryForMistral += '\\n';\n}\n\nif (warning.length > 0) {\n  summaryForMistral += 'WARNING — Expiring Soon (' + warning.length + '):\\n';\n  warning.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ' (Owner: ' + r.owner + ')\\n';\n    summaryForMistral += '    Days remaining: ' + r.daysRemaining + ' | Expires: ' + r.validTo + ' | Issuer: ' + r.issuer + '\\n';\n  });\n  summaryForMistral += '\\n';\n}\n\nif (valid.length > 0) {\n  summaryForMistral += 'VALID (' + valid.length + '):\\n';\n  valid.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ': ' + r.daysRemaining + ' days remaining (expires ' + r.validTo + ')\\n';\n  });\n}\n\nlet subjectPrefix = '✅';\nif (critical.length > 0) subjectPrefix = '🔴';\nelse if (warning.length > 0) subjectPrefix = '🟡';\n\nconst emailSubject = subjectPrefix + ' SSL Daily Report [' + new Date().toISOString().split('T')[0] + '] — ' + critical.length + ' Critical, ' + warning.length + ' Warning, ' + valid.length + ' Valid';\n\nreturn [{ json: { hasIssues, critical: critical.length, warning: warning.length, valid: valid.length, total: results.length, summaryForMistral, emailSubject, checkedAt: new Date().toISOString().split('T')[0] } }];"
+        "jsCode": "const allItems = $input.all();\nconst results = allItems.map(i => i.json);\n\nconst critical = results.filter(r => r.severity === 'critical');\nconst warning  = results.filter(r => r.severity === 'warning');\nconst valid    = results.filter(r => r.severity === 'info');\nconst hasIssues = critical.length > 0 || warning.length > 0;\n\nlet summaryForMistral = 'SSL Certificate Daily Scan Results\\nDate: ' + new Date().toISOString().split('T')[0] + '\\nTotal domains checked: ' + results.length + '\\n\\n';\n\nif (critical.length > 0) {\n  summaryForMistral += 'CRITICAL / EXPIRED / ERROR (' + critical.length + '):\\n';\n  critical.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ' (Owner: ' + r.owner + ')\\n';\n    summaryForMistral += '    Status: ' + r.status + ' | Days remaining: ' + (r.daysRemaining !== null ? r.daysRemaining : 'N/A') + '\\n';\n    if (r.validTo) summaryForMistral += '    Expires: ' + r.validTo + ' | Issuer: ' + r.issuer + '\\n';\n  });\n  summaryForMistral += '\\n';\n}\n\nif (warning.length > 0) {\n  summaryForMistral += 'WARNING — Expiring Soon (' + warning.length + '):\\n';\n  warning.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ' (Owner: ' + r.owner + ')\\n';\n    summaryForMistral += '    Days remaining: ' + r.daysRemaining + ' | Expires: ' + r.validTo + ' | Issuer: ' + r.issuer + '\\n';\n  });\n  summaryForMistral += '\\n';\n}\n\nif (valid.length > 0) {\n  summaryForMistral += 'VALID (' + valid.length + '):\\n';\n  valid.forEach(r => {\n    summaryForMistral += '  - ' + r.domain + ': ' + r.daysRemaining + ' days remaining (expires ' + r.validTo + ')\\n';\n  });\n}\n\nlet subjectPrefix = '✅';\nif (critical.length > 0) subjectPrefix = '🔴';\nelse if (warning.length > 0) subjectPrefix = '🟡';\n\nconst emailSubject = subjectPrefix + ' SSL Daily Report [' + new Date().toISOString().split('T')[0] + '] — ' + critical.length + ' Critical, ' + warning.length + ' Warning, ' + valid.length + ' Valid';\n\nreturn [{ json: { hasIssues, critical: critical.length, warning: warning.length, valid: valid.length, total: results.length, allResults: results, summaryForMistral, emailSubject, checkedAt: new Date().toISOString().split('T')[0] } }];"
       },
       "id": "8928ef48-4fc8-4211-8e82-65427b4c7f7f",
       "name": "Aggregate All Results",
@@ -125,13 +125,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.mistral.ai/v1/chat/completions",
+        "url": "https://api.eu.mistral.ai/v1/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer YOUR_MISTRAL_API_KEY_HERE"
+              "value": "=Bearer {{$env.MISTRAL_API_KEY}}"
             },
             {
               "name": "Content-Type",
@@ -339,7 +339,7 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",

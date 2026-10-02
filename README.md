@@ -1,249 +1,144 @@
-# 🔒 AI Bytes Lab — Daily SSL Certificate Monitor
+# 🔒 AI Bytes Lab — EU-First SSL Certificate Monitor
 
-> Automated SSL certificate monitoring with **Mistral AI** analysis, built entirely in **n8n**.  
-> No external APIs. No third-party dependencies. Self-contained and EU-sovereign.
+Automated SSL/TLS certificate monitoring with **Mistral AI** analysis, built for self-hosted **n8n**.
 
+The workflow checks certificates directly over TLS, classifies certificate health, and only invokes Mistral when attention is required. Mistral inference is routed through the **EU regional endpoint**.
 
----
+## What it does
 
-## 📌 What This Does
+1. Runs daily at 08:00.
+2. Connects directly to each configured domain over TLS.
+3. Classifies certificates as OK, WARNING, CRITICAL, EXPIRED, TIMEOUT, or ERROR.
+4. Sends a minimal certificate-status summary to Mistral when issues exist.
+5. Produces an AI-assisted security analysis and remediation guidance.
+6. Sends a branded HTML report by email.
 
-This n8n workflow runs every morning at **08:00** and:
+## Architecture
 
-1. Checks SSL certificates for all your domains directly via TLS connection (no external API)
-2. Categorizes each domain by status — OK, WARNING, CRITICAL, EXPIRED, ERROR
-3. Sends the scan results to **Mistral AI** for a professional security analysis
-4. Sends a **branded HTML email** with per-domain issue cards, AI analysis, and remediation steps
+```text
+Daily Trigger
+  → Domain List
+  → Direct TLS Check
+  → Validate / Normalize
+  → Aggregate Results
+  → Issues?
+      ├─ No  → Local log only
+      └─ Yes → Mistral EU Regional Inference
+                 → Build HTML Report
+                 → SMTP
+```
 
-All processing stays on your own infrastructure. No data leaves your server except the Mistral API call.
+The certificate checks themselves do not depend on an external certificate-checking API.
 
----
+## Alert thresholds
 
-## 📊 Alert Thresholds
-
-| Days Remaining | Status | Severity |
+| Days remaining | Status | Severity |
 |---|---|---|
-| 30+ days | ✅ OK | info — no alert sent |
-| 8–14 days | 🟡 WARNING | warning — alert sent |
-| 1–7 days | 🔴 CRITICAL | critical — alert sent |
-| Expired | 🔴 EXPIRED | critical — alert sent |
-| Unreachable | 🔴 ERROR / TIMEOUT | critical — alert sent |
+| 15+ | OK | info |
+| 8–14 | WARNING | warning |
+| 1–7 | CRITICAL | critical |
+| < 0 | EXPIRED | critical |
+| connection failure | ERROR / TIMEOUT | critical |
 
-Alerts are only sent when there are WARNING or CRITICAL issues. If everything is healthy, no email is sent.
+## Requirements
 
----
+- Self-hosted n8n
+- Node.js built-in `tls` module enabled for Code nodes
+- Mistral API key
+- SMTP credentials
 
-## 🗂 Workflow Architecture
-
-```
-Daily Trigger (08:00)
-  └── Domain List — Edit Here
-        └── Split Into Individual Domains
-              └── SSL Checker (Code node — TLS)
-                    └── Parse SSL Result (Code node)
-                          └── Aggregate All Results (Code node)
-                                └── Any Issues Found? (IF node)
-                                      ├── [YES] Build Mistral Request Body (Code node)
-                                      │           └── Mistral AI — Write Report (HTTP Request)
-                                      │                 └── Build Email HTML (Code node)
-                                      │                       └── Send Summary Email
-                                      └── [NO]  Log — All Certs Healthy
-```
-
----
-
-## 📁 Files in This Repo
-
-| File | Description |
-|---|---|
-| `ssl-monitor.json` | Full n8n workflow — import directly |
-| `README.md` | This file |
-
----
-
-## ⚙️ Requirements
-
-### Self-Hosted n8n (Required for TLS module)
-
-This workflow uses Node.js's built-in `tls` module to connect directly to domains and read certificates. This module is **blocked by default** in n8n's Code node sandbox.
-
-**You must add this environment variable to your n8n instance:**
+For self-hosted n8n, allow the TLS module:
 
 ```yaml
-# docker-compose.yml — under environment:
 environment:
-  - NODE_FUNCTION_ALLOW_BUILTIN=tls,https,net
+  - NODE_FUNCTION_ALLOW_BUILTIN=tls
+  - MISTRAL_API_KEY=replace-with-your-key
 ```
 
-Then restart n8n:
-```bash
-docker compose restart
+Restart n8n after changing the environment.
+
+> Keep `MISTRAL_API_KEY` outside the workflow export and out of Git. The included workflow references the environment variable rather than embedding an API key.
+
+## Setup
+
+1. Import `ssl-monitor.json` into n8n.
+2. Configure the domain list in **Domain List — Edit Here**.
+3. Provide `MISTRAL_API_KEY` securely to your self-hosted n8n runtime.
+4. Configure SMTP credentials in n8n.
+5. Test manually.
+6. Activate the workflow after validating the output.
+
+The repository export is intentionally **inactive by default** so importing it cannot immediately start scheduled requests.
+
+## Mistral integration
+
+The workflow currently uses `mistral-small-latest` for concise SSL/TLS security analysis and calls:
+
+```text
+https://api.eu.mistral.ai/v1/chat/completions
 ```
 
-> ⚠️ **Important:** `NODE_FUNCTION_ALLOW_BUILTIN` is a **self-hosted only** feature.  
-> **n8n Cloud does not support importing Node.js built-in modules** in the Code node — not even `tls`, `https`, or `net`. This is a hard platform restriction with no workaround on Cloud.  
-> If you are on n8n Cloud, you will need to replace the SSL Checker Code node with an HTTP Request node calling a free external API like `https://ssl-checker.io/api/v1/check/{domain}`.
+Mistral documents this as its EU regional inference endpoint. Regional inference controls where eligible inference input and output processing occurs. It does **not** imply that every Mistral control-plane function (for example account configuration, billing, API-key management, or usage analytics) is regional.
+
+Before production use, verify that the selected model is available on the EU endpoint.
+
+## Data flow and privacy
+
+### Processed locally
+
+The self-hosted workflow performs TLS connections and certificate inspection locally. It derives certificate metadata such as:
+
+- domain
+- status / severity
+- expiry date
+- days remaining
+- issuer
+
+### Sent to Mistral
+
+Only the structured certificate summary required to generate the report is sent to Mistral. No traffic logs, application payloads, user records, server credentials, or private keys are intentionally included.
+
+### Important boundary
+
+This project is **EU-first**, not a claim that every component or every piece of operational metadata remains exclusively in the EU. Mistral regional inference and any separate SMTP/n8n infrastructure have their own processing and retention characteristics.
+
+Organizations deploying the workflow remain responsible for evaluating their own GDPR, contractual, retention, and security requirements.
+
+## Security design
+
+- API key is not embedded in the public workflow.
+- TLS checks are performed directly instead of through a third-party certificate-checking service.
+- Mistral is called only when an issue is detected.
+- The AI receives a minimized certificate summary.
+- The workflow export ships inactive.
+- AI output is advisory; certificate status and severity are determined deterministically before the model is called.
+
+## Why use AI here?
+
+Mistral does **not** decide whether a certificate is expired or critical. Deterministic code does that.
+
+The model is used where an LLM is useful: turning structured findings into a concise report for technical and non-technical readers, prioritizing remediation language, and explaining next actions.
+
+That separation keeps monitoring deterministic while making the notification layer easier to consume.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `ssl-monitor.json` | Importable n8n workflow |
+| `README.md` | Architecture, setup, security, and data-flow documentation |
+| `LICENCE` | MIT license |
+
+## Testing
+
+Use a controlled test target such as `expired.badssl.com`, execute the workflow manually, inspect the generated report, and only then activate scheduling.
+
+## License
+
+MIT.
 
 ---
 
-## 🚀 Setup Instructions
+Not affiliated with or endorsed by Mistral AI.
 
-### 1. Import the Workflow
-
-In n8n: **Settings → Import from file → select `ssl-monitor.json`**
-
-### 2. Add the Environment Variable (Self-hosted only)
-
-Edit your `docker-compose.yml`:
-
-```yaml
-services:
-  n8n:
-    image: n8nio/n8n
-    environment:
-      - NODE_FUNCTION_ALLOW_BUILTIN=tls,https,net
-      - N8N_BASIC_AUTH_ACTIVE=true
-      # ... your other existing variables
-```
-
-Restart: `docker compose restart`
-
-### 3. Configure Your Domains
-
-Open the **"Domain List — Edit Here"** node and update the array:
-
-```javascript
-[
-  { "domain": "yourdomain.com",     "owner": "Main Website" },
-  { "domain": "api.yourdomain.com", "owner": "API Server" },
-  { "domain": "client1.com",        "owner": "Client 1" }
-]
-```
-
-### 4. Add Your Mistral API Key
-
-In the **"Mistral AI — Write Report"** HTTP Request node, update the Authorization header:
-
-```
-Bearer YOUR_MISTRAL_API_KEY_HERE
-```
-
-Get your API key at: https://console.mistral.ai
-
-### 5. Configure Email
-
-In the **"Send Summary Email"** node:
-- `fromEmail` — your sender address
-- `toEmail` — your security team address
-- Make sure your SMTP credentials are configured in n8n
-
-### 6. Activate
-
-Toggle the workflow to **Active**. It will run every day at 08:00.
-
----
-
-## 🧪 Testing
-
-To test immediately without waiting for the schedule:
-
-1. Open the workflow in n8n
-2. Click **"Execute Workflow"** manually
-3. Add a known-expired test domain to your domain list: `expired.badssl.com`
-4. Check your inbox
-
----
-
-## 🤖 Mistral AI Integration
-
-This workflow uses **Mistral Small** (`mistral-small-latest`) for the security analysis. It was chosen because:
-
-- European company — full GDPR compliance, no CLOUD Act exposure
-- Open weights model — can be self-hosted if needed
-- Cost efficient — fractions of a cent per report
-- Accurate for structured security analysis tasks
-
-The prompt instructs Mistral to produce:
-- Executive summary of SSL health
-- Per-domain immediate action items with steps
-- Deadline recommendations
-- SSL hygiene recommendations
-
----
-
-## 🇪🇺 Why Mistral AI?
-
-AI Bytes Lab builds security automation exclusively with **Mistral AI** because:
-
-- French company, European infrastructure
-- No US jurisdiction — no CLOUD Act concerns
-- Aligns with NIS2 and GDPR supply chain security requirements
-- Open weights = option to run fully on-premise
-
----
-
-## � GDPR & Data Privacy
-
-### What Data Is Processed?
-
-- **Domain names** and SSL certificate metadata only (expiry dates, issuer, validity dates)
-- **No personal data.** No user information. No traffic logs.
-
-### Where Is It Stored?
-
-- All scan results stored **locally on your self-hosted n8n instance**
-- You maintain full control over your data
-- No data is persisted externally unless you explicitly configure it
-
-### What Goes to Mistral AI?
-
-- Domain names + certificate status summary (critical/warning/valid)
-- Days remaining until expiry
-- Issuer and validity dates
-- Minimal, structured data only — used to generate the security analysis
-
-### What Doesn't Leave Your Server?
-
-- User data, traffic logs, API keys, credentials
-- Internal network information
-- Any data beyond what's explicitly sent for analysis
-
-### Important Compliance Notes
-
-- **Ensure you have a Data Processing Agreement (DPA) with Mistral AI** — required under GDPR Article 28
-- Mistral is a French company with EU infrastructure — GDPR compliant
-- This workflow helps you meet **NIS2 Article 21** encryption requirements
-- Self-hosted n8n means you're not dependent on external SaaS platforms
-- **For n8n Cloud users:** If using the ssl-checker.io fallback, review their privacy policy separately
-
----
-
-## �📋 NIS2 Relevance
-
-Expired or weak SSL certificates are a **NIS2 Article 21** compliance concern. Article 21 requires organizations to implement appropriate technical measures for security, including encryption in transit. An expired certificate means:
-
-- Unencrypted or untrusted connections to your services
-- Documented evidence of failure to maintain encryption
-- Potential audit finding during NIS2 assessments
-
-This workflow provides daily automated evidence that your SSL posture is actively monitored.
-
----
-
-## 📺 Watch the Full Tutorial
-
-> **AI Bytes Lab — YouTube**  
-> [Link to video]
-
-Subscribe for more EU-focused security automation with Mistral AI.
-
----
-
-## 📄 License
-
-MIT — free to use, modify, and distribute.
-
----
-
-> **Not affiliated with or endorsed by Mistral AI.**  
-> AI Bytes Lab | Bucharest, Romania | [aibyteslab.com](https://aibyteslab.com)
+AI Bytes Lab — Bucharest, Romania
