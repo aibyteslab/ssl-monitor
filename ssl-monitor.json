@@ -170,7 +170,7 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2,
       "position": [
-        -3264,
+        -3120,
         768
       ]
     },
@@ -212,6 +212,19 @@
       ],
       "id": "41c6ebba-c665-40e8-9667-038a399fff15",
       "name": "SSL Checker"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst html = String(input.html ?? '');\n\nif (!html) {\n  throw new Error('Security Gate: empty email body');\n}\n\nconst forbidden = [\n  { name: 'anchor tag', pattern: /<\\s*a\\b/i },\n  { name: 'href attribute', pattern: /\\bhref\\s*=/i },\n  { name: 'HTTP(S) URL', pattern: /https?:\\/\\//i },\n  { name: 'mailto URI', pattern: /mailto\\s*:/i },\n  { name: 'javascript URI', pattern: /javascript\\s*:/i },\n  { name: 'data URI', pattern: /data\\s*:/i },\n  { name: 'form tag', pattern: /<\\s*form\\b/i },\n  { name: 'iframe tag', pattern: /<\\s*iframe\\b/i },\n  { name: 'script tag', pattern: /<\\s*script\\b/i },\n  { name: 'object/embed tag', pattern: /<\\s*(object|embed)\\b/i },\n  { name: 'meta refresh', pattern: /<\\s*meta\\b[^>]*http-equiv\\s*=\\s*[\"']?refresh/i }\n];\n\nconst violation = forbidden.find(rule => rule.pattern.test(html));\n\nif (violation) {\n  throw new Error('Security Gate BLOCKED email: forbidden ' + violation.name);\n}\n\n// SMTP only receives output from this node.\nreturn [{\n  json: {\n    html,\n    emailSubject: String(input.emailSubject ?? ''),\n    securityGate: 'PASSED'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3368,
+        768
+      ],
+      "id": "security-gate-zero-link",
+      "name": "Security Gate — Zero Links"
     }
   ],
   "pinData": {},
@@ -315,7 +328,7 @@
       "main": [
         [
           {
-            "node": "Send Summary Email",
+            "node": "Security Gate — Zero Links",
             "type": "main",
             "index": 0
           }
@@ -327,6 +340,17 @@
         [
           {
             "node": "Parse SSL Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Gate — Zero Links": {
+      "main": [
+        [
+          {
+            "node": "Send Summary Email",
             "type": "main",
             "index": 0
           }
