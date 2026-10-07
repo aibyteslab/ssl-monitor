@@ -36,8 +36,9 @@ The certificate checks themselves do not depend on an external certificate-check
 |---|---|---|
 | 15+ | OK | info |
 | 8–14 | WARNING | warning |
-| 1–7 | CRITICAL | critical |
+| 0–7 | CRITICAL | critical |
 | < 0 | EXPIRED | critical |
+| TLS trust / hostname validation failure | TLS_INVALID | critical |
 | connection failure | ERROR / TIMEOUT | critical |
 
 ## Requirements
@@ -72,7 +73,7 @@ The repository export is intentionally **inactive by default** so importing it c
 
 ## Mistral integration
 
-The workflow currently uses `mistral-small-latest` for concise SSL/TLS security analysis and calls:
+The workflow uses `mistral-large-4` for SSL/TLS security analysis and calls:
 
 ```text
 https://api.eu.mistral.ai/v1/chat/completions
@@ -80,7 +81,9 @@ https://api.eu.mistral.ai/v1/chat/completions
 
 Mistral documents this as its EU regional inference endpoint. Regional inference controls where eligible inference input and output processing occurs. It does **not** imply that every Mistral control-plane function (for example account configuration, billing, API-key management, or usage analytics) is regional.
 
-Before production use, verify that the selected model is available on the EU endpoint.
+`mistral-large-4` is currently a Public Preview model. Mistral's Large 4 announcement states that the preview is served from Mistral infrastructure in Europe. Before production activation, verify that `mistral-large-4` is exposed by the EU regional endpoint for your account, because regional model availability can differ.
+
+The workflow uses the fixed preview model ID rather than a `-latest` alias.
 
 ## Data flow and privacy
 
@@ -107,11 +110,14 @@ Organizations deploying the workflow remain responsible for evaluating their own
 ## Security design
 
 - API key is not embedded in the public workflow.
+- SMTP credential metadata is removed from the public workflow export.
 - TLS checks are performed directly instead of through a third-party certificate-checking service.
 - Mistral is called only when an issue is detected.
 - The AI receives a minimized certificate summary.
 - The workflow export ships inactive.
 - AI output is advisory; certificate status and severity are determined deterministically before the model is called.
+- TLS trust validation is checked explicitly; an untrusted chain, self-signed certificate, or hostname validation failure is classified as `TLS_INVALID`.
+- AI-generated report text is HTML-escaped before being inserted into the email template.
 
 ## Why use AI here?
 
@@ -131,7 +137,7 @@ That separation keeps monitoring deterministic while making the notification lay
 
 ## Testing
 
-Use a controlled test target such as `expired.badssl.com`, execute the workflow manually, inspect the generated report, and only then activate scheduling.
+Use controlled test targets such as `expired.badssl.com` and `self-signed.badssl.com`. Confirm that the former is reported as `EXPIRED` and the latter as `TLS_INVALID`. Then inspect the generated report and only activate scheduling after the results are correct.
 
 ## License
 
