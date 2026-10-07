@@ -118,6 +118,10 @@ Organizations deploying the workflow remain responsible for evaluating their own
 - AI output is advisory; certificate status and severity are determined deterministically before the model is called.
 - TLS trust validation is checked explicitly; an untrusted chain, self-signed certificate, or hostname validation failure is classified as `TLS_INVALID`.
 - AI-generated report text is HTML-escaped before being inserted into the email template.
+- Scan-derived fields such as domain, owner, issuer, status, and error text are treated as untrusted input and HTML-escaped.
+- The AI is explicitly instructed not to emit URLs, hyperlinks, HTML, Markdown links, email addresses, QR codes, or instructions to visit external resources.
+- URL-like content is stripped from AI-generated text before rendering.
+- The final email builder is fail-closed: if the resulting HTML contains an anchor, `href=`, `http://`, or `https://`, execution stops before the SMTP node. Reports intentionally contain zero clickable links.
 
 ## Why use AI here?
 
