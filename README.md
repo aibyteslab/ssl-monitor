@@ -8,7 +8,7 @@ The workflow checks certificates directly over TLS, classifies certificate healt
 
 1. Runs daily at 08:00.
 2. Connects directly to each configured domain over TLS.
-3. Classifies certificates as OK, WARNING, CRITICAL, EXPIRED, TIMEOUT, or ERROR.
+3. Classifies certificates as OK, WARNING, CRITICAL, EXPIRED, INVALID, TIMEOUT, or ERROR.
 4. Sends a minimal certificate-status summary to Mistral when issues exist.
 5. Produces an AI-assisted security analysis and remediation guidance.
 6. Sends a branded HTML report by email.
@@ -38,12 +38,13 @@ The certificate checks themselves do not depend on an external certificate-check
 | 8–14 | WARNING | warning |
 | 1–7 | CRITICAL | critical |
 | < 0 | EXPIRED | critical |
+| invalid CA trust, name mismatch or not-yet-valid | INVALID | critical |
 | connection failure | ERROR / TIMEOUT | critical |
 
 ## Requirements
 
 - Self-hosted n8n
-- Node.js built-in `tls` module enabled for Code nodes
+- Node.js built-in `tls`, `dns`, and `net` modules enabled for Code nodes
 - Mistral API key
 - SMTP credentials
 
@@ -51,7 +52,7 @@ For self-hosted n8n, allow the TLS module:
 
 ```yaml
 environment:
-  - NODE_FUNCTION_ALLOW_BUILTIN=tls
+  - NODE_FUNCTION_ALLOW_BUILTIN=tls,dns,net
   - MISTRAL_API_KEY=replace-with-your-key
 ```
 
@@ -109,6 +110,12 @@ Organizations deploying the workflow remain responsible for evaluating their own
 - API key is not embedded in the public workflow.
 - TLS checks are performed directly instead of through a third-party certificate-checking service.
 - Mistral is called only when an issue is detected.
+- DNS addresses are checked against public-address ranges and the TLS connection is pinned to a validated IP (no second DNS lookup).
+- Certificate expiry, host matching and CA-chain authorization are evaluated separately. A relaxed handshake is only used to inspect broken certificates; it is **never** treated as evidence of trust.
+- Structured, minimized findings are submitted to Mistral without raw certificate/owner/issuer text.
+- Model output is HTML-escaped and links are removed. The email contains no external images or links.
+- If Mistral fails, the workflow sends the same deterministic certificate findings with fallback commentary.
+- HTTP requests retry once and continue to reporting on failure.
 - The AI receives a minimized certificate summary.
 - The workflow export ships inactive.
 - AI output is advisory; certificate status and severity are determined deterministically before the model is called.
@@ -129,7 +136,28 @@ That separation keeps monitoring deterministic while making the notification lay
 | `README.md` | Architecture, setup, security, and data-flow documentation |
 | `LICENCE` | MIT license |
 
+## Security limitations
+
+- This is a public-domain monitor. Internal and private destinations are deliberately blocked. Use a separately isolated workflow for internal certificates.
+- Public IP filtering is defense-in-depth; enforce egress controls at the host, container, or firewall level, and restrict n8n workflow edit permissions.
+- Domain and owner configuration is trusted administrator input. Do not let external users modify the workflow or env vars.
+- DNS/IP filtering is intentionally conservative and does not promise a complete registry of special-use addresses; deploy network-layer egress denial rules as well.
+- Certificate validity is based on the host runtime clock and built-in Node.js trust store. Root-store configuration and intermediate certificates can affect the result.
+- HTML escaping mitigates injection in email reports. Prompt injection is mitigated by data minimization and non-authoritative model output, not conclusively eliminated at the model layer.
+- Do not import into production without checking n8n task-runner built-in module permissions and running the validation checklist.
+
 ## Testing
+
+The hardening branch was statically checked for JavaScript syntax, exercised with mock public/private IPv4 and IPv6 addresses, and tested with HTML/script injection payloads and a mocked Mistral failure. These are not live end-to-end n8n tests.
+
+Before activating in production, test manually:
+
+1. A valid public TLS certificate; confirm `OK`.
+2. An expired and a self-signed certificate; confirm `EXPIRED` and `INVALID` respectively.
+3. Invalid hostname and a domain resolving to localhost/private/link-local; confirm no outbound TLS connection.
+4. A benign Mistral response, a crafted link/script response, and an HTTP failure; confirm safe HTML or deterministic fallback.
+5. SMTP credentials, n8n environment/module permissions, and daily scheduling.
+
 
 Use a controlled test target such as `expired.badssl.com`, execute the workflow manually, inspect the generated report, and only then activate scheduling.
 
